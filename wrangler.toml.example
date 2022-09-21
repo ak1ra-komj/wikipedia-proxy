@@ -3,20 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2022-09-20"
 
 routes = [
-    {pattern = "mediawiki.example.com/*", zone_name = "example.com"},
-    {pattern = "wikibooks.example.com/*", zone_name = "example.com"},
-    {pattern = "wikidata.example.com/*", zone_name = "example.com"},
-    {pattern = "wikinews.example.com/*", zone_name = "example.com"},
     {pattern = "wikipedia.example.com/*", zone_name = "example.com"},
+    {pattern = "wiktionary.example.com/*", zone_name = "example.com"},
+    {pattern = "wikibooks.example.com/*", zone_name = "example.com"},
+    {pattern = "wikinews.example.com/*", zone_name = "example.com"},
     {pattern = "wikiquote.example.com/*", zone_name = "example.com"},
     {pattern = "wikisource.example.com/*", zone_name = "example.com"},
     {pattern = "wikiversity.example.com/*", zone_name = "example.com"},
     {pattern = "wikivoyage.example.com/*", zone_name = "example.com"},
-    {pattern = "wiktionary.example.com/*", zone_name = "example.com"},
-    {pattern = "wikimedia.example.com/*", zone_name = "example.com"},
-    {pattern = "commons.wikimedia.example.com/*", zone_name = "example.com"},
-    {pattern = "meta.wikimedia.example.com/*", zone_name = "example.com"},
-    {pattern = "species.wikimedia.example.com/*", zone_name = "example.com"},
-    {pattern = "upload.wikimedia.example.com/*", zone_name = "example.com"},
-    {pattern = "login.wikimedia.example.com/*", zone_name = "example.com"},
 ]
