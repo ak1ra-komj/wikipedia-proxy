@@ -8,15 +8,12 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
-import { cloneDeep } from "lodash";
-
 export interface Env {}
 
 export interface ExtendedUrl {
 	url: URL,
 	region: string | null,
 	mobile: string | null,
-	host: string | null,
 }
 
 const config = {
@@ -47,7 +44,7 @@ export default {
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	let url = new URL(request.url);
 	const siteMatrixRegex = new RegExp(
-		`^(${config.siteMatrix}|${config.wikimedia})\.${config.domain}`, config.flags);
+		`^(${config.siteMatrix})\.${config.domain}`, config.flags);
 
 	// only redirect /, /m/ to /www/ for siteMatrix projects
 	if(siteMatrixRegex.test(url.host) &&
@@ -76,56 +73,46 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 	}
 }
 
-function isMobile(request: Request): boolean {
-	let useragent = request.headers.get("user-agent");
-	if(useragent === null) { return false; }
-
-	const regex = /(Android|iPhone|iPad|iPod|SymbianOS|Windows Phone)/gi;
-	return regex.test(useragent) ? true : false;
-}
-
 function proxiedUrl2UpstreamUrl(url: URL): ExtendedUrl {
 	// https://wikipedia.example.com/www/
 	// https://wikipedia.example.com/en/wiki/Wikipedia
 	// https://wikipedia.example.com/zh/m/wiki/Wikipedia
-	// regex for pathname
+
 	const upstreamUrl: ExtendedUrl = {
-		url: cloneDeep(url), region: null, mobile: null, host: null}
+		url: url, region: null, mobile: null}
 	const wwwRegex = new RegExp( `^\/www`, config.flags);
 	const regionRegex = new RegExp( `^\/(${config.region})(\/(m))?`, config.flags);
 	// regex for host
 	const hostRegex = new RegExp(
 		`^(${config.siteMatrix}|${config.wikimedia})\.${config.domain}`, config.flags);
 
-	upstreamUrl.host = upstreamUrl.url.host.replace(hostRegex, "$1.org");
-	if(wwwRegex.test(upstreamUrl.url.pathname)) {
-		let hostWithPath = upstreamUrl.url.pathname.replace(wwwRegex, `www.${upstreamUrl.host}`);
-		upstreamUrl.url.href = `${upstreamUrl.url.protocol}//${hostWithPath}`;
+	let upstreamHost = url.host.replace(hostRegex, "$1.org");
+	if(wwwRegex.test(url.pathname)) {
+		upstreamUrl.url.href = url.pathname.replace(
+			wwwRegex, `${url.protocol}//www.${upstreamHost}`);
 		return upstreamUrl;
 	}
 
 	// /zh/m/wiki/Wikipedia => [ /zh/m, zh, /m, m, ...]
-	const regionMatch = regionRegex.exec(upstreamUrl.url.pathname);
+	const regionMatch = regionRegex.exec(url.pathname);
 	if(regionMatch !== null) {
-		let hostWithPath;
 		// regionMatch Array's index 0 is match 1, then capturing group 1, 2, 3, ...
 		// we use index 3 for capturing group 3 here
 		if(regionMatch[1] !== undefined && regionMatch[3] !== undefined) {
 			// mobile, zh.m.wikipedia.org
 			upstreamUrl.region = regionMatch[1];
 			upstreamUrl.mobile = regionMatch[3];
-			hostWithPath = url.pathname.replace(
-				regionRegex, `${upstreamUrl.region}.${upstreamUrl.mobile}.${upstreamUrl.host}`);
+			upstreamHost = `${upstreamUrl.region}.${upstreamUrl.mobile}.${upstreamHost}`
 		} else if(regionMatch[1] !== undefined) {
 			// desktop, zh.wikipedia.org
 			upstreamUrl.region = regionMatch[1];
-			hostWithPath = url.pathname.replace(
-				regionRegex, `${upstreamUrl.region}.${upstreamUrl.host}`);
+			upstreamHost = `${upstreamUrl.region}.${upstreamHost}`
 		}
-		upstreamUrl.url.href = `${url.protocol}//${hostWithPath}`;
+		upstreamUrl.url.href = url.pathname.replace(
+			regionRegex, `${url.protocol}//${upstreamHost}`);
 		return upstreamUrl;
 	} else {
-		upstreamUrl.url.host = upstreamUrl.host;
+		upstreamUrl.url.host = upstreamHost;
 		return upstreamUrl;
 	}
 }
@@ -136,7 +123,7 @@ function upstreamUrl2ProxiedUrl(url: URL): ExtendedUrl {
 	// https://zh.m.wikipedia.org/wiki/维基百科
 
 	const proxiedUrl: ExtendedUrl = {
-		url: cloneDeep(url), region: null, mobile: null, host: null}
+		url: url, region: null, mobile: null}
 
 	const wwwRegex = new RegExp( `^www\.(${config.siteMatrix})\.org`, config.flags);
 	const regionRegex = new RegExp(
