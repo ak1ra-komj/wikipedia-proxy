@@ -19,7 +19,6 @@ export interface ExtendedUrl {
 const config = {
 	domain: "ak1ra.xyz",
 
-	protocol: "https:",
 	redirectStatus: 301,
 
 	// regex pattern
@@ -63,9 +62,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 		const rewriter = new HTMLRewriter()
 			.on("a", new AttributeRewriter("href", upstreamUrl))
 			.on("img", new AttributeRewriter("src", upstreamUrl))
-			.on("script", new AttributeRewriter("src", upstreamUrl))
-			.on("link", new AttributeRewriter("href", upstreamUrl))
-			.on("meta", new AttributeRewriter("content", upstreamUrl));
+			.on("script", new AttributeRewriter("src", upstreamUrl));
 
 		return rewriter.transform(resp);
 	} else {
@@ -171,7 +168,9 @@ class AttributeRewriter {
 			`^(https?:)?\/\/.*(${config.siteMatrix}|${config.wikimedia})\.org.*`, config.flags);
 
 		let attribute = element.getAttribute(this.attributeName);
-		if(attribute === null) { return; }
+		if(attribute === null) {
+			return;
+		}
 
 		// Url with host
 		let newAttribute;
@@ -182,8 +181,16 @@ class AttributeRewriter {
 				attribute = this.upstreamUrl.url.protocol + attribute;
 			}
 			newAttribute = upstreamUrl2ProxiedUrl(new URL(attribute)).url.toString();
-		// Url from same origin
 		} else {
+			// third part links
+			if(/(https?:)?\/\//gi.test(attribute)) {
+				return;
+			}
+			// MediaWiki's ResourceLoader: /w/api.php, /w/load.php
+			if(/^\/w\/(api|load)\.php/gi.test(attribute)) {
+				return;
+			}
+			// Url from same origin
 			if(this.upstreamUrl.region !== null && this.upstreamUrl.mobile !== null) {
 				newAttribute = `/${this.upstreamUrl.region}/${this.upstreamUrl.mobile}${attribute}`;
 			} else if(this.upstreamUrl.region !== null) {
