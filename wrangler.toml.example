@@ -3,12 +3,17 @@ main = "src/index.ts"
 compatibility_date = "2022-09-20"
 
 routes = [
-    {pattern = "wikipedia.example.com/*", zone_name = "example.com"},
-    {pattern = "wiktionary.example.com/*", zone_name = "example.com"},
-    {pattern = "wikibooks.example.com/*", zone_name = "example.com"},
-    {pattern = "wikinews.example.com/*", zone_name = "example.com"},
-    {pattern = "wikiquote.example.com/*", zone_name = "example.com"},
-    {pattern = "wikisource.example.com/*", zone_name = "example.com"},
-    {pattern = "wikiversity.example.com/*", zone_name = "example.com"},
-    {pattern = "wikivoyage.example.com/*", zone_name = "example.com"},
+    {pattern = "wikipedia.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "wiktionary.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "wikibooks.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "wikinews.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "wikiquote.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "wikisource.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "wikiversity.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "wikivoyage.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "commons.wikimedia.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "meta.wikimedia.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "species.wikimedia.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "upload.wikimedia.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
+    {pattern = "login.wikimedia.ak1ra.xyz/*", zone_name = "ak1ra.xyz"},
 ]
