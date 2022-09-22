@@ -45,12 +45,18 @@ async function handleRequest(
 	let url = new URL(request.url);
 	const wwwSiteRegex = new RegExp(
 		`^(${config.siteMatrix})\.${config.domain}`, config.flags);
+	const apiPathRegex = new RegExp(`^\/api\/`, config.flags);
 
 	// only redirect /, /m/ to /www/ for siteMatrix projects
 	if(wwwSiteRegex.test(url.host) &&
 			(url.pathname === "/" || /^\/m\/?$/gi.test(url.pathname))) {
 		url.pathname = "/www/";
 		return Response.redirect(url.toString(), config.redirectStatus);
+	}
+
+	if(apiPathRegex.test(url.pathname)) {
+		// add region prefix from referer
+		url = adjustApiRequestUrl(request);
 	}
 
 	// convert request.url to real upstreamUrl
@@ -154,6 +160,26 @@ function upstreamUrl2ProxiedUrl(url: URL): ExtendedUrl {
 	return proxiedUrl;
 }
 
+function adjustApiRequestUrl(request: Request): URL {
+	// https://wikipedia.ak1ra.xyz/api/rest_v1/page/summary/Central_Park_West
+	const url = new URL(request.url);
+
+	const referer = request.headers.get("referer");
+	// if there is no referer header, we can only return the request.url
+	if(referer === null) {
+		return url;
+	}
+
+	const refererUrl = proxiedUrl2UpstreamUrl(new URL(referer));
+	if(refererUrl.region !== null && refererUrl.mobile !== null) {
+		url.pathname = `/${refererUrl.region}/${refererUrl.mobile}` + url.pathname;
+	} else if(refererUrl.region !== null) {
+		url.pathname = `/${refererUrl.region}` + url.pathname;
+	}
+
+	return url;
+}
+
 class AttributeRewriter {
 	attributeName: string;
 	upstreamUrl: ExtendedUrl;
@@ -186,10 +212,10 @@ class AttributeRewriter {
 			if(/(https?:)?\/\//gi.test(attribute)) {
 				return;
 			}
-			// MediaWiki's ResourceLoader: /w/api.php, /w/load.php
-			if(/^\/w\/(api|load)\.php/gi.test(attribute)) {
-				return;
-			}
+			// // MediaWiki's ResourceLoader: /w/api.php, /w/load.php
+			// if(/^\/w\/(api|load)\.php/gi.test(attribute)) {
+			// 	return;
+			// }
 			// Url from same origin
 			if(this.upstreamUrl.region !== null && this.upstreamUrl.mobile !== null) {
 				newAttribute = `/${this.upstreamUrl.region}/${this.upstreamUrl.mobile}${attribute}`;
