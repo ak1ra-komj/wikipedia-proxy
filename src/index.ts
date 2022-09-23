@@ -8,7 +8,10 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
-export interface Env {}
+export interface Env {
+	DOMAIN?: string,
+	REWRITE_IN_PAGE_URL?: string,
+}
 
 export interface ExtendedUrl {
 	url: URL,
@@ -17,7 +20,7 @@ export interface ExtendedUrl {
 }
 
 const config = {
-	domain: "ak1ra.xyz",
+	domain: "example.com",
 
 	redirectStatus: 301,
 
@@ -43,8 +46,8 @@ export default {
 async function handleRequest(
 		request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	let url = new URL(request.url);
-	const wwwSiteRegex = new RegExp(
-		`^(${config.siteMatrix})\.${config.domain}`, config.flags);
+	const proxyDomain = env.DOMAIN !== undefined ? env.DOMAIN : config.domain;
+	const wwwSiteRegex = new RegExp(`^(${config.siteMatrix})\.${proxyDomain}`, config.flags);
 	const apiPathRegex = new RegExp(`^\/api\/`, config.flags);
 
 	// only redirect /, /m/ to /www/ for siteMatrix projects
@@ -56,20 +59,20 @@ async function handleRequest(
 
 	if(apiPathRegex.test(url.pathname)) {
 		// add region prefix from referer
-		url = adjustApiRequestUrl(request);
+		url = adjustApiRequestUrl(request, env);
 	}
 
 	// convert request.url to real upstreamUrl
-	const upstreamUrl = proxiedUrl2UpstreamUrl(url);
+	const upstreamUrl = proxiedUrl2UpstreamUrl(url, env);
 	const resp = await fetch(upstreamUrl.url.toString());
 
 	// rewrite HTML urls
 	const contentType = resp.headers.get("content-type");
 	if(contentType !== null && contentType.startsWith("text/html")) {
 		const rewriter = new HTMLRewriter()
-			.on("a", new AttributeRewriter("href", upstreamUrl))
-			.on("img", new AttributeRewriter("src", upstreamUrl))
-			.on("script", new AttributeRewriter("src", upstreamUrl));
+			.on("a", new AttributeRewriter(env, "href", upstreamUrl))
+			.on("img", new AttributeRewriter(env, "src", upstreamUrl))
+			.on("script", new AttributeRewriter(env, "src", upstreamUrl));
 
 		return rewriter.transform(resp);
 	} else {
@@ -77,18 +80,19 @@ async function handleRequest(
 	}
 }
 
-function proxiedUrl2UpstreamUrl(url: URL): ExtendedUrl {
+function proxiedUrl2UpstreamUrl(url: URL, env: Env): ExtendedUrl {
 	// https://wikipedia.example.com/www/
 	// https://wikipedia.example.com/en/wiki/Wikipedia
 	// https://wikipedia.example.com/zh/m/wiki/维基百科
 
+	const proxyDomain = env.DOMAIN !== undefined ? env.DOMAIN : config.domain;
 	const upstreamUrl: ExtendedUrl = {url: url, region: null, mobile: null}
 	const wwwPathRegex = new RegExp(`^\/www`, config.flags);
 	// consider /static/images/project-logos/enwiki.png and 'st' region
 	const regionPathRegex = new RegExp(`^\/(${config.region})\/((m)\/)?`, config.flags);
 	// regex for host
 	const hostRegex = new RegExp(
-		`^(${config.siteMatrix}|${config.wikimedia})\.${config.domain}`, config.flags);
+		`^(${config.siteMatrix}|${config.wikimedia})\.${proxyDomain}`, config.flags);
 
 	let domain = url.host.replace(hostRegex, "$1.org");
 	if(wwwPathRegex.test(url.pathname)) {
@@ -120,12 +124,13 @@ function proxiedUrl2UpstreamUrl(url: URL): ExtendedUrl {
 	return upstreamUrl;
 }
 
-function upstreamUrl2ProxiedUrl(url: URL): ExtendedUrl {
+function upstreamUrl2ProxiedUrl(url: URL, env: Env): ExtendedUrl {
 	// The urls that can be fed into this function should be pre-filtered
 	// https://www.wikipedia.org/
 	// https://en.wikipedia.org/wiki/Wikipedia
 	// https://zh.m.wikipedia.org/wiki/维基百科
 
+	const proxyDomain = env.DOMAIN !== undefined ? env.DOMAIN : config.domain;
 	const proxiedUrl: ExtendedUrl = {url: url, region: null, mobile: null};
 
 	const wwwHostRegex = new RegExp( `^www\.(${config.siteMatrix})\.org`, config.flags);
@@ -135,7 +140,7 @@ function upstreamUrl2ProxiedUrl(url: URL): ExtendedUrl {
 	const upstreamPathname = proxiedUrl.url.pathname;
 
 	if(wwwHostRegex.test(upstreamHost)) {
-		proxiedUrl.url.host = upstreamHost.replace(wwwHostRegex, `$1.${config.domain}`);
+		proxiedUrl.url.host = upstreamHost.replace(wwwHostRegex, `$1.${proxyDomain}`);
 		proxiedUrl.url.pathname = ("/www" + upstreamPathname);
 		return proxiedUrl;
 	}
@@ -147,7 +152,7 @@ function upstreamUrl2ProxiedUrl(url: URL): ExtendedUrl {
 		return proxiedUrl;
 	}
 
-	proxiedUrl.url.host = `${regionMatch[5]}.${config.domain}`;
+	proxiedUrl.url.host = `${regionMatch[5]}.${proxyDomain}`;
 	proxiedUrl.region = regionMatch[2] !== undefined ? regionMatch[2] : null;
 	proxiedUrl.mobile = regionMatch[4] !== undefined ? regionMatch[4] : null;
 	if(proxiedUrl.region !== null && proxiedUrl.mobile !== null) {
@@ -162,7 +167,7 @@ function upstreamUrl2ProxiedUrl(url: URL): ExtendedUrl {
 	return proxiedUrl;
 }
 
-function adjustApiRequestUrl(request: Request): URL {
+function adjustApiRequestUrl(request: Request, env: Env): URL {
 	// https://wikipedia.ak1ra.xyz/api/rest_v1/page/summary/Central_Park_West
 	const url = new URL(request.url);
 	const referer = request.headers.get("referer");
@@ -171,7 +176,7 @@ function adjustApiRequestUrl(request: Request): URL {
 		return url;
 	}
 
-	const refererUrl = proxiedUrl2UpstreamUrl(new URL(referer));
+	const refererUrl = proxiedUrl2UpstreamUrl(new URL(referer), env);
 	if(refererUrl.region !== null && refererUrl.mobile !== null) {
 		url.pathname = `/${refererUrl.region}/${refererUrl.mobile}` + url.pathname;
 	} else if(refererUrl.region !== null) {
@@ -182,12 +187,14 @@ function adjustApiRequestUrl(request: Request): URL {
 }
 
 class AttributeRewriter {
+	env: Env;
 	attributeName: string;
 	upstreamUrl: ExtendedUrl;
 	wikipediaRegex = new RegExp(
 		`(${config.siteMatrix}|${config.wikimedia})\.org`, config.flags);
 
-	constructor(attributeName: string, upstreamUrl: ExtendedUrl) {
+	constructor(env: Env, attributeName: string, upstreamUrl: ExtendedUrl) {
+		this.env = env;
 		this.attributeName = attributeName;
 		this.upstreamUrl = upstreamUrl;
 	}
@@ -200,7 +207,8 @@ class AttributeRewriter {
 
 		// Url with host
 		// Would someone have a Wikipedia domain with a .org TLD in the pathname?
-		if(this.wikipediaRegex.test(attribute)) {
+		// env.REWRITE_IN_PAGE_URL controls whether to enable in-page urls rewrite
+		if(this.env.REWRITE_IN_PAGE_URL === "yes" && this.wikipediaRegex.test(attribute)) {
 			// fix ERR_INVALID_URL when new URL(attribute)
 			// "//upload.wikimedia.org/path/to/file.png"
 			if(attribute.startsWith("//")) {
@@ -208,7 +216,7 @@ class AttributeRewriter {
 			}
 			element.setAttribute(
 				this.attributeName,
-				upstreamUrl2ProxiedUrl(new URL(attribute)).url.toString());
+				upstreamUrl2ProxiedUrl(new URL(attribute), this.env).url.toString());
 		} else {
 			// other url or protocol
 			if(!/^\/[^\/]/gi.test(attribute)) {
