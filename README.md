@@ -9,8 +9,8 @@ Yet another Wikipedia Proxy running on Cloudflare Workers.
 * Install `npm` dependencies, `npm install`
 * If you don't have `wrangler` installed, [install it](https://developers.cloudflare.com/workers/#installing-the-workers-cli).
 * `cp wrangler.toml.example wrangler.toml`
-* edit `config.domain` to `<your_domain>` in [src/index.ts](src/index.ts),
-    or config it via `env.DOMAIN` environment variable.
+* edit `config.proxy` to `<your_domain>` in [src/config.ts](src/config.ts),
+    or config it via `env.PROXY` environment variable.
 * Run `wrangler dev` in your terminal to start a development server, or
     run `wrangler publish` to publish your worker
 * Add the following DNS records in [Cloudflare Dashboard](https://dash.cloudflare.com/) [Workers/Triggers/Custom Domains](https://developers.cloudflare.com/workers/platform/routing/custom-domains).
@@ -33,11 +33,11 @@ Yet another Wikipedia Proxy running on Cloudflare Workers.
 
 ## Environment variables
 
-### `env.DOMAIN` (default: `undefined`)
+### `env.PROXY` (default: `undefined`)
 
 You can configure your domian via this environment variable, run:
 
-    wrangler secret put DOMAIN
+    wrangler secret put PROXY
 
 ### `env.REWRITE_IN_PAGE_URL` (default: `undefined`)
 
