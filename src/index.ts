@@ -99,29 +99,29 @@ function proxiedUrl2UpstreamUrl(url: URL): ExtendedUrl {
 
 	// /zh/m/wiki/Wikipedia => [ /zh/m/, zh, m/, m, ...]
 	const regionMatch = regionPathRegex.exec(url.pathname);
-	if(regionMatch !== null) {
-		// regionMatch Array's index 0 is match 1, then capturing group 1, 2, 3, ...
-		// we use index 3 for capturing group 3 here
-		if(regionMatch[1] !== undefined && regionMatch[3] !== undefined) {
-			// mobile, zh.m.wikipedia.org
-			upstreamUrl.region = regionMatch[1];
-			upstreamUrl.mobile = regionMatch[3];
-			upstreamUrl.url.host = `${upstreamUrl.region}.${upstreamUrl.mobile}.${domain}`;
-			upstreamUrl.url.pathname = url.pathname.slice(`/${upstreamUrl.region}/${upstreamUrl.mobile}`.length);
-		} else if(regionMatch[1] !== undefined) {
-			// desktop, zh.wikipedia.org
-			upstreamUrl.region = regionMatch[1];
-			upstreamUrl.url.host = `${upstreamUrl.region}.${domain}`;
-			upstreamUrl.url.pathname = url.pathname.slice(`/${upstreamUrl.region}`.length);
-		}
-		return upstreamUrl;
-	} else {
+	if(regionMatch === null) {
 		upstreamUrl.url.host = domain;
 		return upstreamUrl;
 	}
+
+	// regionMatch Array's index 0 is match 1, then capturing group 1, 2, 3, ...
+	// we use index 3 for capturing group 3 here
+	upstreamUrl.region = regionMatch[1] !== undefined ? regionMatch[1] : null;
+	upstreamUrl.mobile = regionMatch[3] !== undefined ? regionMatch[3] : null;
+	if(upstreamUrl.region !== null && upstreamUrl.mobile !== null) {
+		// mobile, zh.m.wikipedia.org
+		upstreamUrl.url.host = `${upstreamUrl.region}.${upstreamUrl.mobile}.${domain}`;
+		upstreamUrl.url.pathname = url.pathname.slice(`/${upstreamUrl.region}/${upstreamUrl.mobile}`.length);
+	} else if(upstreamUrl.region !== null) {
+		// desktop, zh.wikipedia.org
+		upstreamUrl.url.host = `${upstreamUrl.region}.${domain}`;
+		upstreamUrl.url.pathname = url.pathname.slice(`/${upstreamUrl.region}`.length);
+	}
+	return upstreamUrl;
 }
 
 function upstreamUrl2ProxiedUrl(url: URL): ExtendedUrl {
+	// The urls that can be fed into this function should be pre-filtered
 	// https://www.wikipedia.org/
 	// https://en.wikipedia.org/wiki/Wikipedia
 	// https://zh.m.wikipedia.org/wiki/维基百科
@@ -148,13 +148,15 @@ function upstreamUrl2ProxiedUrl(url: URL): ExtendedUrl {
 	}
 
 	proxiedUrl.url.host = `${regionMatch[5]}.${config.domain}`;
-	if(regionMatch[2] !== undefined && regionMatch[4] !== undefined) {
+	proxiedUrl.region = regionMatch[2] !== undefined ? regionMatch[2] : null;
+	proxiedUrl.mobile = regionMatch[4] !== undefined ? regionMatch[4] : null;
+	if(proxiedUrl.region !== null && proxiedUrl.mobile !== null) {
 		// mobile, remove tailing slashes
-		let prefix = `/${regionMatch[2]}/${regionMatch[4]}`.replace(/\/+$/, "");
+		let prefix = `/${proxiedUrl.region}/${proxiedUrl.mobile}`.replace(/\/+$/, "");
 		proxiedUrl.url.pathname = prefix + upstreamPathname;
-	} else if(regionMatch[2] !== undefined) {
+	} else if(proxiedUrl.region !== null) {
 		// desktop
-		let prefix = `/${regionMatch[2]}`.replace(/\/+$/, "");
+		let prefix = `/${proxiedUrl.region}`.replace(/\/+$/, "");
 		proxiedUrl.url.pathname = prefix + upstreamPathname;
 	}
 	return proxiedUrl;
@@ -163,7 +165,6 @@ function upstreamUrl2ProxiedUrl(url: URL): ExtendedUrl {
 function adjustApiRequestUrl(request: Request): URL {
 	// https://wikipedia.ak1ra.xyz/api/rest_v1/page/summary/Central_Park_West
 	const url = new URL(request.url);
-
 	const referer = request.headers.get("referer");
 	// if there is no referer header, we can only return the request.url
 	if(referer === null) {
@@ -183,6 +184,8 @@ function adjustApiRequestUrl(request: Request): URL {
 class AttributeRewriter {
 	attributeName: string;
 	upstreamUrl: ExtendedUrl;
+	wikipediaRegex = new RegExp(
+		`(${config.siteMatrix}|${config.wikimedia})\.org`, config.flags);
 
 	constructor(attributeName: string, upstreamUrl: ExtendedUrl) {
 		this.attributeName = attributeName;
@@ -190,44 +193,35 @@ class AttributeRewriter {
 	}
 
 	element(element: Element) {
-		const urlRegex = new RegExp(
-			`^(https?:)?\/\/.*(${config.siteMatrix}|${config.wikimedia})\.org.*`, config.flags);
-
 		let attribute = element.getAttribute(this.attributeName);
 		if(attribute === null) {
 			return;
 		}
 
 		// Url with host
-		let newAttribute;
-		if(urlRegex.test(attribute)) {
+		// Would someone have a Wikipedia domain with a .org TLD in the pathname?
+		if(this.wikipediaRegex.test(attribute)) {
 			// fix ERR_INVALID_URL when new URL(attribute)
 			// "//upload.wikimedia.org/path/to/file.png"
 			if(attribute.startsWith("//")) {
 				attribute = this.upstreamUrl.url.protocol + attribute;
 			}
-			newAttribute = upstreamUrl2ProxiedUrl(new URL(attribute)).url.toString();
+			element.setAttribute(
+				this.attributeName,
+				upstreamUrl2ProxiedUrl(new URL(attribute)).url.toString());
 		} else {
-			// third part links
-			if(/(https?:)?\/\//gi.test(attribute)) {
+			// other url or protocol
+			if(!/^\/[^\/]/gi.test(attribute)) {
 				return;
 			}
-			// // MediaWiki's ResourceLoader: /w/api.php, /w/load.php
-			// if(/^\/w\/(api|load)\.php/gi.test(attribute)) {
-			// 	return;
-			// }
 			// Url from same origin
+			let prefix: string = "";
 			if(this.upstreamUrl.region !== null && this.upstreamUrl.mobile !== null) {
-				newAttribute = `/${this.upstreamUrl.region}/${this.upstreamUrl.mobile}${attribute}`;
+				prefix = `/${this.upstreamUrl.region}/${this.upstreamUrl.mobile}`;
 			} else if(this.upstreamUrl.region !== null) {
-				newAttribute = `/${this.upstreamUrl.region}${attribute}`;
-			} else {
-				newAttribute = attribute;
+				prefix = `/${this.upstreamUrl.region}`;
 			}
+			element.setAttribute(this.attributeName, prefix + attribute);
 		}
-
-		console.log(`AttributeRewriter: ${attribute} -> ${newAttribute}`);
-
-		element.setAttribute(this.attributeName, newAttribute);
 	}
 }
