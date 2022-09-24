@@ -5,7 +5,7 @@ import { Env, ExtendedUrl } from "./types";
 export async function handleRequest(
     request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 
-    const url = new URL(request.url);
+    let url = new URL(request.url);
     const proxy = env.PROXY !== undefined ? env.PROXY : config.proxy;
     const domain = url.host.replace(proxy, "org");
     if (config.siteMatrix.includes(domain) && url.pathname === "/") {
@@ -13,7 +13,12 @@ export async function handleRequest(
         return Response.redirect(url.toString(), config.redirect);
     }
 
+    // wikipedia.ak1ra.xyz/api/rest_v1/page/summary/<title>
     const mobile = detectMobileDevice(request);
+    if (url.pathname.startsWith("/api/rest_")) {
+        url = modifyApiRequestUrl(request, domain, mobile)
+    }
+
     const upstreamUrl = toUpstreamUrl(url, domain, mobile);
     const resp = await fetch(upstreamUrl.url.toString());
 
@@ -23,7 +28,8 @@ export async function handleRequest(
         const rewriter = new HTMLRewriter()
             .on("a", new AttributeRewriter("href", env, upstreamUrl))
             .on("img", new AttributeRewriter("src", env, upstreamUrl))
-            .on("script", new AttributeRewriter("src", env, upstreamUrl));
+            .on("script", new AttributeRewriter("src", env, upstreamUrl))
+            .on("link", new AttributeRewriter("href", env, upstreamUrl));
         return rewriter.transform(resp);
     } else {
         return resp;
@@ -42,6 +48,23 @@ function detectMobileDevice(request: Request): boolean {
         return userAgent.includes(device.toLowerCase()) ? true : false;
     }
     return false;
+}
+
+function modifyApiRequestUrl(request: Request, domain: string, mobile: boolean): URL {
+    // wikipedia.ak1ra.xyz/api/rest_v1/page/summary/<title>
+    const url = new URL(request.url);
+    const referer = request.headers.get("referer");
+    // if there is no referer header, we can only return the request.url
+    if (referer === null) {
+        return url;
+    }
+
+    const refererUrl = toUpstreamUrl(new URL(referer), domain, mobile);
+    if (refererUrl.region !== null) {
+        url.pathname = `/${refererUrl.region}` + url.pathname;
+    }
+
+    return url;
 }
 
 export function toUpstreamUrl(url: URL, domain: string, mobile: boolean): ExtendedUrl {
@@ -75,6 +98,10 @@ export function toUpstreamUrl(url: URL, domain: string, mobile: boolean): Extend
             `${upstreamUrl.region}.m.${domain}` :
             `${upstreamUrl.region}.${domain}`;
         upstreamUrl.url.pathname = url.pathname.slice(upstreamUrl.region.length + 1);
+    // wikipedia.example.com/w/load.php
+    // /w/load.php will appear when the in-page url rewrite is incomplete
+    } else if (config.siteMatrix.includes(domain)) {
+        upstreamUrl.url.host = domain;
     }
 
     return upstreamUrl;
@@ -119,8 +146,7 @@ export class AttributeRewriter {
     attributeName: string;
     upstreamUrl: ExtendedUrl;
     proxy: string;
-    regex = new RegExp(
-        `(${config.siteMatrix}|${config.wikimedia})\.org`, config.flags);
+    regex = config.siteRegex;
 
     constructor(attributeName: string, env: Env, upstreamUrl: ExtendedUrl) {
         this.env = env;

@@ -15,4 +15,7 @@ export const config = {
 
     // mediawiki project without region subdomain
     wikimedia: ["commons.wikimedia.org", "meta.wikimedia.org", "species.wikimedia.org", "upload.wikimedia.org", "login.wikimedia.org"],
+
+    // mediawiki project all domains
+    siteRegex: /((wikipedia|wiktionary|wikibooks|wikinews|wikiquote|wikisource|wikiversity|wikivoyage)|((commons|meta|species|upload|login)\.)?wikimedia)\.org/gi,
 }
