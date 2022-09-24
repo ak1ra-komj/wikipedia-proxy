@@ -8,7 +8,7 @@ export async function handleRequest(
     const url = new URL(request.url);
     const proxy = env.PROXY !== undefined ? env.PROXY : config.proxy;
     const domain = url.host.replace(proxy, "org");
-    if (config.siteMatrixX.includes(domain) && url.pathname === "/") {
+    if (config.siteMatrix.includes(domain) && url.pathname === "/") {
         url.pathname = "/www/";
         return Response.redirect(url.toString(), config.redirect);
     }
@@ -51,13 +51,13 @@ export function toUpstreamUrl(url: URL, domain: string, mobile: boolean): Extend
     };
 
     // upload.wikimedia.example.com
-    if (config.wikimediaX.includes(domain)) {
+    if (config.wikimedia.includes(domain)) {
         upstreamUrl.url.host = domain;
         return upstreamUrl;
     }
 
     // wikipedia.example.com/www/
-    if (config.siteMatrixX.includes(domain) && url.pathname.startsWith("/www/")) {
+    if (config.siteMatrix.includes(domain) && url.pathname.startsWith("/www/")) {
         upstreamUrl.url.host = `www.${domain}`;
         upstreamUrl.url.pathname = url.pathname.slice(4);
         return upstreamUrl;
@@ -69,7 +69,7 @@ export function toUpstreamUrl(url: URL, domain: string, mobile: boolean): Extend
         return upstreamUrl;
     }
     const region = url.pathname.split("/")[1];
-    if (config.siteMatrixX.includes(domain) && config.regionX.includes(region)) {
+    if (config.siteMatrix.includes(domain) && config.region.includes(region)) {
         upstreamUrl.region = region;
         upstreamUrl.url.host = upstreamUrl.mobile ?
             `${upstreamUrl.region}.m.${domain}` :
@@ -86,14 +86,14 @@ export function toProxiedUrl(url: URL, proxy: string, mobile: boolean): Extended
     };
 
     // upload.wikimedia.org
-    if (config.wikimediaX.includes(url.host)) {
+    if (config.wikimedia.includes(url.host)) {
         proxiedUrl.url.host = url.host.replace("org", proxy);
         return proxiedUrl;
     }
 
     // www.wikipedia.org
     let host = url.host.slice(4);
-    if (url.host.startsWith("www.") && config.siteMatrixX.includes(host)) {
+    if (url.host.startsWith("www.") && config.siteMatrix.includes(host)) {
         proxiedUrl.url.host = host.replace("org", proxy);
         proxiedUrl.url.pathname = "/www" + url.pathname;
         return proxiedUrl;
@@ -105,7 +105,7 @@ export function toProxiedUrl(url: URL, proxy: string, mobile: boolean): Extended
         return proxiedUrl;
     }
     const region = split[0];
-    if (config.regionX.includes(region)) {
+    if (config.region.includes(region)) {
         proxiedUrl.region = region;
         proxiedUrl.url.host = `${split.slice(-2)[0]}.${proxy}`;
         proxiedUrl.url.pathname = `/${proxiedUrl.region}${url.pathname}`;
