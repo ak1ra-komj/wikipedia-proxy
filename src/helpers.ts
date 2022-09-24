@@ -4,158 +4,129 @@ import { Env, ExtendedUrl } from "./types";
 
 export async function handleRequest(
     request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    let url = new URL(request.url);
-    const proxyDomain = env.DOMAIN !== undefined ? env.DOMAIN : config.domain;
-    const wwwSiteRegex = new RegExp(`^(${config.siteMatrix})\.${proxyDomain}`, config.flags);
-    const apiPathRegex = new RegExp(`^\/api\/`, config.flags);
 
-    // only redirect /, /m/ to /www/ for siteMatrix projects
-    if (wwwSiteRegex.test(url.host) &&
-        (url.pathname === "/" || /^\/m\/?$/gi.test(url.pathname))) {
+    const url = new URL(request.url);
+    const proxy = env.PROXY !== undefined ? env.PROXY : config.proxy;
+    const domain = url.host.replace(proxy, "org");
+    if (config.siteMatrix.includes(domain) && url.pathname === "/") {
         url.pathname = "/www/";
-        return Response.redirect(url.toString(), config.redirectStatus);
+        return Response.redirect(url.toString(), config.redirect);
     }
 
-    if (apiPathRegex.test(url.pathname)) {
-        // add region prefix from referer
-        url = adjustApiRequestUrl(request, env);
-    }
-
-    // convert request.url to real upstreamUrl
-    const upstreamUrl = proxiedUrl2UpstreamUrl(url, env);
+    const mobile = detectMobileDevice(request);
+    const upstreamUrl = toUpstreamUrl(url, domain, mobile);
     const resp = await fetch(upstreamUrl.url.toString());
 
     // rewrite HTML urls
     const contentType = resp.headers.get("content-type");
     if (contentType !== null && contentType.startsWith("text/html")) {
         const rewriter = new HTMLRewriter()
-            .on("a", new AttributeRewriter(env, "href", upstreamUrl))
-            .on("img", new AttributeRewriter(env, "src", upstreamUrl))
-            .on("script", new AttributeRewriter(env, "src", upstreamUrl));
-
+            .on("a", new AttributeRewriter("href", env, upstreamUrl))
+            .on("img", new AttributeRewriter("src", env, upstreamUrl))
+            .on("script", new AttributeRewriter("src", env, upstreamUrl));
         return rewriter.transform(resp);
     } else {
         return resp;
     }
 }
 
-export function proxiedUrl2UpstreamUrl(url: URL, env: Env): ExtendedUrl {
-    // https://wikipedia.example.com/www/
-    // https://wikipedia.example.com/en/wiki/Wikipedia
-    // https://wikipedia.example.com/zh/m/wiki/维基百科
-
-    const proxyDomain = env.DOMAIN !== undefined ? env.DOMAIN : config.domain;
-    const upstreamUrl: ExtendedUrl = { url: url, region: null, mobile: null }
-    const wwwPathRegex = new RegExp(`^\/www`, config.flags);
-    // consider /static/images/project-logos/enwiki.png and 'st' region
-    const regionPathRegex = new RegExp(`^\/(${config.region})\/((m)\/)?`, config.flags);
-    // regex for host
-    const hostRegex = new RegExp(
-        `^(${config.siteMatrix}|${config.wikimedia})\.${proxyDomain}`, config.flags);
-
-    let domain = url.host.replace(hostRegex, "$1.org");
-    if (wwwPathRegex.test(url.pathname)) {
-        upstreamUrl.url.href = url.pathname.replace(
-            wwwPathRegex, `${url.protocol}//www.${domain}`);
-        return upstreamUrl;
+function detectMobileDevice(request: Request): boolean {
+    let userAgent = request.headers.get("user-agent");
+    if (userAgent === null) {
+        return false;
     }
 
-    // /zh/m/wiki/Wikipedia => [ /zh/m/, zh, m/, m, ...]
-    const regionMatch = regionPathRegex.exec(url.pathname);
-    if (regionMatch === null) {
+    userAgent = userAgent.toLowerCase();
+    const deviceList = ["android", "iphone", "ipad", "ipod", "symbianos", "windows phone"];
+    for (let device of deviceList) {
+        return userAgent.includes(device.toLowerCase()) ? true : false;
+    }
+    return false;
+}
+
+export function toUpstreamUrl(url: URL, domain: string, mobile: boolean): ExtendedUrl {
+    // domain is upstreamDomain
+    const upstreamUrl: ExtendedUrl = {
+        url: new URL(url.toString()), region: null, mobile: mobile
+    };
+
+    // upload.wikimedia.example.com
+    if (config.wikimedia.includes(domain)) {
         upstreamUrl.url.host = domain;
         return upstreamUrl;
     }
 
-    // regionMatch Array's index 0 is match 1, then capturing group 1, 2, 3, ...
-    // we use index 3 for capturing group 3 here
-    upstreamUrl.region = regionMatch[1] !== undefined ? regionMatch[1] : null;
-    upstreamUrl.mobile = regionMatch[3] !== undefined ? regionMatch[3] : null;
-    if (upstreamUrl.region !== null && upstreamUrl.mobile !== null) {
-        // mobile, zh.m.wikipedia.org
-        upstreamUrl.url.host = `${upstreamUrl.region}.${upstreamUrl.mobile}.${domain}`;
-        upstreamUrl.url.pathname = url.pathname.slice(`/${upstreamUrl.region}/${upstreamUrl.mobile}`.length);
-    } else if (upstreamUrl.region !== null) {
-        // desktop, zh.wikipedia.org
-        upstreamUrl.url.host = `${upstreamUrl.region}.${domain}`;
-        upstreamUrl.url.pathname = url.pathname.slice(`/${upstreamUrl.region}`.length);
+    // wikipedia.example.com/www/
+    if (config.siteMatrix.includes(domain) && url.pathname.startsWith("/www/")) {
+        upstreamUrl.url.host = `www.${domain}`;
+        upstreamUrl.url.pathname = url.pathname.slice(4);
+        return upstreamUrl;
     }
+
+    // wikipedia.example.com/en/
+    const split = url.pathname.split("/");
+    if (split.length <= 1) {
+        return upstreamUrl;
+    }
+    const region = url.pathname.split("/")[1];
+    if (config.siteMatrix.includes(domain) && config.region.includes(region)) {
+        upstreamUrl.region = region;
+        upstreamUrl.url.host = upstreamUrl.mobile ?
+            `${upstreamUrl.region}.m.${domain}` :
+            `${upstreamUrl.region}.${domain}`;
+        upstreamUrl.url.pathname = url.pathname.slice(upstreamUrl.region.length + 1);
+    }
+
     return upstreamUrl;
 }
 
-export function upstreamUrl2ProxiedUrl(url: URL, env: Env): ExtendedUrl {
-    // The urls that can be fed into this function should be pre-filtered
-    // https://www.wikipedia.org/
-    // https://en.wikipedia.org/wiki/Wikipedia
-    // https://zh.m.wikipedia.org/wiki/维基百科
+export function toProxiedUrl(url: URL, proxy: string, mobile: boolean): ExtendedUrl {
+    const proxiedUrl: ExtendedUrl = {
+        url: new URL(url.toString()), region: null, mobile: mobile
+    };
 
-    const proxyDomain = env.DOMAIN !== undefined ? env.DOMAIN : config.domain;
-    const proxiedUrl: ExtendedUrl = { url: url, region: null, mobile: null };
-
-    const wwwHostRegex = new RegExp(`^www\.(${config.siteMatrix})\.org`, config.flags);
-    const regionHostRegex = new RegExp(
-        `^((${config.region})(\.(m))?\.)?(${config.siteMatrix}|${config.wikimedia})\.org`, config.flags);
-    const upstreamHost = proxiedUrl.url.host;
-    const upstreamPathname = proxiedUrl.url.pathname;
-
-    if (wwwHostRegex.test(upstreamHost)) {
-        proxiedUrl.url.host = upstreamHost.replace(wwwHostRegex, `$1.${proxyDomain}`);
-        proxiedUrl.url.pathname = ("/www" + upstreamPathname);
+    // upload.wikimedia.org
+    if (config.wikimedia.includes(url.host)) {
+        proxiedUrl.url.host = url.host.replace("org", proxy);
         return proxiedUrl;
     }
 
-    // zh.m.wikipedia.org => [ zh.m.wikipedia.org, zh.m., zh, .m, m, wikipedia, ... ]
-    // upload.wikimedia.org => [ upload.wikimedia.org, ..., (g5) upload.wikimedia, upload., upload, ... ]
-    const regionMatch = regionHostRegex.exec(upstreamHost);
-    if (regionMatch === null) {
+    // www.wikipedia.org
+    let host = url.host.slice(4);
+    if (url.host.startsWith("www.") && config.siteMatrix.includes(host)) {
+        proxiedUrl.url.host = host.replace("org", proxy);
+        proxiedUrl.url.pathname = "/www" + url.pathname;
         return proxiedUrl;
     }
 
-    proxiedUrl.url.host = `${regionMatch[5]}.${proxyDomain}`;
-    proxiedUrl.region = regionMatch[2] !== undefined ? regionMatch[2] : null;
-    proxiedUrl.mobile = regionMatch[4] !== undefined ? regionMatch[4] : null;
-    if (proxiedUrl.region !== null && proxiedUrl.mobile !== null) {
-        // mobile, remove tailing slashes
-        let prefix = `/${proxiedUrl.region}/${proxiedUrl.mobile}`.replace(/\/+$/, "");
-        proxiedUrl.url.pathname = prefix + upstreamPathname;
-    } else if (proxiedUrl.region !== null) {
-        // desktop
-        let prefix = `/${proxiedUrl.region}`.replace(/\/+$/, "");
-        proxiedUrl.url.pathname = prefix + upstreamPathname;
+    // en.wikipedia.org || en.m.wikipedia.org
+    const split = url.host.split(".");
+    if (split.length < 3 || split.length > 4) {
+        return proxiedUrl;
     }
+    const region = split[0];
+    if (config.region.includes(region)) {
+        proxiedUrl.region = region;
+        proxiedUrl.url.host = `${split.slice(-2)[0]}.${proxy}`;
+        proxiedUrl.url.pathname = `/${proxiedUrl.region}${url.pathname}`;
+    }
+
     return proxiedUrl;
 }
 
-function adjustApiRequestUrl(request: Request, env: Env): URL {
-    // https://wikipedia.ak1ra.xyz/api/rest_v1/page/summary/Central_Park_West
-    const url = new URL(request.url);
-    const referer = request.headers.get("referer");
-    // if there is no referer header, we can only return the request.url
-    if (referer === null) {
-        return url;
-    }
-
-    const refererUrl = proxiedUrl2UpstreamUrl(new URL(referer), env);
-    if (refererUrl.region !== null && refererUrl.mobile !== null) {
-        url.pathname = `/${refererUrl.region}/${refererUrl.mobile}` + url.pathname;
-    } else if (refererUrl.region !== null) {
-        url.pathname = `/${refererUrl.region}` + url.pathname;
-    }
-
-    return url;
-}
-
-class AttributeRewriter {
+export class AttributeRewriter {
     env: Env;
     attributeName: string;
     upstreamUrl: ExtendedUrl;
-    wikipediaRegex = new RegExp(
+    proxy: string;
+    regex = new RegExp(
         `(${config.siteMatrix}|${config.wikimedia})\.org`, config.flags);
 
-    constructor(env: Env, attributeName: string, upstreamUrl: ExtendedUrl) {
+    constructor(attributeName: string, env: Env, upstreamUrl: ExtendedUrl) {
         this.env = env;
         this.attributeName = attributeName;
         this.upstreamUrl = upstreamUrl;
+        this.proxy = env.PROXY !== undefined ? env.PROXY : config.proxy;
     }
 
     element(element: Element) {
@@ -167,7 +138,7 @@ class AttributeRewriter {
         // Url with host
         // Would someone have a Wikipedia domain with a .org TLD in the pathname?
         // env.REWRITE_IN_PAGE_URL controls whether to enable in-page urls rewrite
-        if (this.env.REWRITE_IN_PAGE_URL === "yes" && this.wikipediaRegex.test(attribute)) {
+        if (this.env.REWRITE_IN_PAGE_URL === "yes" && this.regex.test(attribute)) {
             // fix ERR_INVALID_URL when new URL(attribute)
             // "//upload.wikimedia.org/path/to/file.png"
             if (attribute.startsWith("//")) {
@@ -175,20 +146,17 @@ class AttributeRewriter {
             }
             element.setAttribute(
                 this.attributeName,
-                upstreamUrl2ProxiedUrl(new URL(attribute), this.env).url.toString());
+                toProxiedUrl(new URL(attribute), this.proxy, this.upstreamUrl.mobile).url.toString());
         } else {
             // other url or protocol
             if (!/^\/[^\/]/gi.test(attribute)) {
                 return;
             }
             // Url from same origin
-            let prefix: string = "";
-            if (this.upstreamUrl.region !== null && this.upstreamUrl.mobile !== null) {
-                prefix = `/${this.upstreamUrl.region}/${this.upstreamUrl.mobile}`;
-            } else if (this.upstreamUrl.region !== null) {
-                prefix = `/${this.upstreamUrl.region}`;
+            if (this.upstreamUrl.region !== null) {
+                element.setAttribute(
+                    this.attributeName, `/${this.upstreamUrl.region}${attribute}`);
             }
-            element.setAttribute(this.attributeName, prefix + attribute);
         }
     }
 }
