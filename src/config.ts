@@ -18,4 +18,20 @@ export const config = {
 
     // mediawiki project all domains
     siteRegex: /((wikipedia|wiktionary|wikibooks|wikinews|wikiquote|wikisource|wikiversity|wikivoyage)|((commons|meta|species|upload|login)\.)?wikimedia)\.org/gi,
+
+    // https://developers.cloudflare.com/workers/runtime-apis/request/
+    cf: {
+        cacheEverything: false,
+        cacheTtl: 30,
+        cacheTtlByStatus: {
+            "404": 1,
+            "500-599": 0,
+        },
+        minify: {
+            html: false,
+            css: true,
+            javascript: true,
+        },
+        mirage: true,
+    }
 }

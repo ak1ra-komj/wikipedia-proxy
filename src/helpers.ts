@@ -20,7 +20,7 @@ export async function handleRequest(
     }
 
     const upstreamUrl = toUpstreamUrl(url, domain, mobile);
-    const resp = await fetch(upstreamUrl.url.toString());
+    const resp = await fetch(upstreamUrl.url.toString(), {cf: config.cf});
 
     // rewrite HTML urls
     const contentType = resp.headers.get("content-type");
